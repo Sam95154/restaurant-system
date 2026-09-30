@@ -1,0 +1,374 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Branch {
+  id            String            @id @default(uuid())
+  name          String
+  address       String
+  city          String
+  state         String
+  country       String
+  phone         String
+  email         String
+  openingTime   String
+  closingTime   String
+  weeklyHoliday String?
+  status        BranchStatus      @default(OPENING_SOON)
+  managerId     String?           @unique
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  manager       Employee?         @relation("BranchManager", fields: [managerId], references: [id])
+  categories    Category[]
+  coupons       Coupon[]
+  employees     Employee[]        @relation("BranchEmployees")
+  items         Item[]
+  orders        Order[]
+  tables        RestaurantTable[]
+}
+
+model Employee {
+  id            String               @id @default(uuid())
+  fullName      String
+  email         String?              @unique
+  phone         String?              @unique
+  loginId       String               @unique
+  passwordHash  String
+  role          Role
+  department    String?
+  status        ActiveStatus         @default(ACTIVE)
+  joiningDate   DateTime             @default(now())
+  branchId      String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  managesBranch Branch?              @relation("BranchManager")
+  branch        Branch?              @relation("BranchEmployees", fields: [branchId], references: [id])
+  permissions   EmployeePermission[]
+  kitchenOrders Order[]              @relation("KitchenEmployeeOrders")
+  ordersTaken   Order[]              @relation("ServiceEmployeeOrders")
+}
+
+model Permission {
+  id        String               @id @default(uuid())
+  key       String               @unique
+  employees EmployeePermission[]
+}
+
+model EmployeePermission {
+  id           String     @id @default(uuid())
+  employeeId   String
+  permissionId String
+  employee     Employee   @relation(fields: [employeeId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([employeeId, permissionId])
+}
+
+model Customer {
+  id        String    @id @default(uuid())
+  fullName  String?
+  email     String?   @unique
+  phone     String?   @unique
+  createdAt DateTime  @default(now())
+  orders    Order[]
+  otps      OtpCode[]
+  reviews   Review[]
+}
+
+model OtpCode {
+  id         String   @id @default(uuid())
+  customerId String
+  codeHash   String
+  channel    String
+  expiresAt  DateTime
+  attempts   Int      @default(0)
+  consumed   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+}
+
+model Category {
+  id          String       @id @default(uuid())
+  name        String
+  description String?
+  image       String?
+  status      ActiveStatus @default(ACTIVE)
+  branchId    String
+  branch      Branch       @relation(fields: [branchId], references: [id])
+  items       Item[]
+
+  @@unique([branchId, name])
+}
+
+model Item {
+  id              String       @id @default(uuid())
+  name            String
+  description     String?
+  price           Decimal
+  discount        Decimal      @default(0)
+  ingredients     String?
+  preparationTime Int?
+  status          ActiveStatus @default(ACTIVE)
+  categoryId      String
+  branchId        String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  branch          Branch       @relation(fields: [branchId], references: [id])
+  category        Category     @relation(fields: [categoryId], references: [id])
+  images          ItemImage[]
+  orderItems      OrderItem[]
+}
+
+model ItemImage {
+  id        String  @id @default(uuid())
+  itemId    String
+  url       String
+  isPrimary Boolean @default(false)
+  item      Item    @relation(fields: [itemId], references: [id])
+}
+
+model RestaurantTable {
+  id       String         @id @default(uuid())
+  number   Int
+  capacity Int
+  status   TableStatus    @default(AVAILABLE)
+  branchId String
+  branch   Branch         @relation(fields: [branchId], references: [id])
+  sessions TableSession[]
+
+  @@unique([branchId, number])
+}
+
+model TableSession {
+  id       String          @id @default(uuid())
+  status   SessionStatus   @default(OPEN)
+  openedAt DateTime        @default(now())
+  closedAt DateTime?
+  tableId  String
+  bills    Bill[]
+  orders   Order[]
+  table    RestaurantTable @relation(fields: [tableId], references: [id])
+}
+
+model Order {
+  id                  String               @id @default(uuid())
+  orderNumber         Int                  @default(autoincrement())
+  type                OrderType
+  status              OrderStatus          @default(PENDING)
+  specialInstructions String?
+  branchId            String
+  tableSessionId      String?
+  customerId          String?
+  serviceEmployeeId   String?
+  kitchenEmployeeId   String?
+  couponId            String?
+  subtotal            Decimal              @default(0)
+  discountAmount      Decimal              @default(0)
+  taxAmount           Decimal              @default(0)
+  total               Decimal              @default(0)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  billItems           BillItem[]
+  branch              Branch               @relation(fields: [branchId], references: [id])
+  coupon              Coupon?              @relation(fields: [couponId], references: [id])
+  customer            Customer?            @relation(fields: [customerId], references: [id])
+  kitchenEmployee     Employee?            @relation("KitchenEmployeeOrders", fields: [kitchenEmployeeId], references: [id])
+  serviceEmployee     Employee?            @relation("ServiceEmployeeOrders", fields: [serviceEmployeeId], references: [id])
+  tableSession        TableSession?        @relation(fields: [tableSessionId], references: [id])
+  items               OrderItem[]
+  statusHistory       OrderStatusHistory[]
+}
+
+model OrderItem {
+  id            String  @id @default(uuid())
+  orderId       String
+  itemId        String
+  nameSnapshot  String
+  priceSnapshot Decimal
+  quantity      Int
+  item          Item    @relation(fields: [itemId], references: [id])
+  order         Order   @relation(fields: [orderId], references: [id])
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(uuid())
+  orderId   String
+  status    OrderStatus
+  changedBy String?
+  changedAt DateTime    @default(now())
+  order     Order       @relation(fields: [orderId], references: [id])
+}
+
+model Coupon {
+  id               String        @id @default(uuid())
+  code             String        @unique
+  description      String?
+  discountType     DiscountType
+  discountValue    Decimal
+  minOrder         Decimal       @default(0)
+  maxDiscount      Decimal?
+  startDate        DateTime
+  expiryDate       DateTime
+  usageLimit       Int?
+  perCustomerLimit Int?
+  status           ActiveStatus  @default(ACTIVE)
+  branchId         String?
+  branch           Branch?       @relation(fields: [branchId], references: [id])
+  usages           CouponUsage[]
+  orders           Order[]
+}
+
+model CouponUsage {
+  id         String   @id @default(uuid())
+  couponId   String
+  customerId String?
+  usedAt     DateTime @default(now())
+  coupon     Coupon   @relation(fields: [couponId], references: [id])
+}
+
+model Bill {
+  id             String        @id @default(uuid())
+  billNumber     Int           @default(autoincrement())
+  subtotal       Decimal
+  discount       Decimal       @default(0)
+  tax            Decimal       @default(0)
+  total          Decimal
+  paymentStatus  PaymentStatus @default(UNPAID)
+  generatedById  String?
+  tableSessionId String?
+  createdAt      DateTime      @default(now())
+  tableSession   TableSession? @relation(fields: [tableSessionId], references: [id])
+  items          BillItem[]
+  payments       Payment[]
+}
+
+model BillItem {
+  id      String @id @default(uuid())
+  billId  String
+  orderId String
+  bill    Bill   @relation(fields: [billId], references: [id])
+  order   Order  @relation(fields: [orderId], references: [id])
+}
+
+model Payment {
+  id           String        @id @default(uuid())
+  billId       String
+  amount       Decimal
+  method       PaymentMethod
+  recordedById String?
+  recordedAt   DateTime      @default(now())
+  bill         Bill          @relation(fields: [billId], references: [id])
+}
+
+model Review {
+  id               String   @id @default(uuid())
+  customerId       String
+  orderId          String?
+  itemRating       Int?
+  restaurantRating Int?
+  text             String?
+  approved         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  customer         Customer @relation(fields: [customerId], references: [id])
+}
+
+model Notification {
+  id            String   @id @default(uuid())
+  userId        String
+  userType      String
+  type          String
+  title         String
+  message       String
+  relatedEntity String?
+  read          Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([userId, userType])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  userRole  String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  SUPER_ADMIN
+  MANAGER
+  SERVICE_EMPLOYEE
+  KITCHEN_EMPLOYEE
+  BILLING_EMPLOYEE
+}
+
+enum BranchStatus {
+  OPENING_SOON
+  OPEN
+  CLOSED
+  TEMPORARILY_CLOSED
+  PERMANENTLY_CLOSED
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  CLEANING
+  OUT_OF_SERVICE
+}
+
+enum SessionStatus {
+  OPEN
+  CLOSED
+}
+
+enum OrderType {
+  STAFF_ORDER
+  SELF_ORDER
+  TAKEAWAY
+}
+
+enum OrderStatus {
+  PENDING
+  ACCEPTED
+  PREPARING
+  READY
+  SERVED
+  COMPLETED
+  CANCELLED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  OTHER
+}
+
+enum ActiveStatus {
+  ACTIVE
+  INACTIVE
+}
