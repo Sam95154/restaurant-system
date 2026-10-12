@@ -527,16 +527,10 @@ router.post(
 
 const qrOrderSchema = z.object({
   tableId: z.string().uuid(),
-
-  items: z
-    .array(cartLineSchema)
-    .min(1),
-
-  specialInstructions: z
-    .string()
-    .trim()
-    .max(1000)
-    .optional(),
+  customerName: z.string().trim().min(2).max(120),
+  customerPhone: z.string().trim().min(7).max(20),
+  items: z.array(cartLineSchema).min(1),
+  specialInstructions: z.string().trim().max(1000).optional(),
 });
 
 router.post(
@@ -544,6 +538,10 @@ router.post(
 
   asyncHandler(async (req, res) => {
     const data = qrOrderSchema.parse(req.body);
+    const normalizedPhone = data.customerPhone.replace(/[\\s()-]/g, '');
+    if (!/^\\+?[0-9]{7,15}$/.test(normalizedPhone)) {
+      throw new AppError('Enter a valid phone number.', 400);
+    }
 
     /* =====================================================
        FIND TABLE
@@ -594,10 +592,17 @@ router.post(
        CREATE ORDER
     ===================================================== */
 
+    const customer = await prisma.customer.upsert({
+      where: { phone: normalizedPhone },
+      update: { fullName: data.customerName },
+      create: { fullName: data.customerName, phone: normalizedPhone },
+    });
+
     const order =
       await createOrder({
         branchId:
           table.branchId,
+        customerId: customer.id,
 
         tableId:
           table.id,
