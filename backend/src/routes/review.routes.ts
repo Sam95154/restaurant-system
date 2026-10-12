@@ -15,7 +15,7 @@ const reviewSchema = z.object({
   text: z.string().max(1000).optional(),
 });
 
-// Only a customer whose own COMPLETED order this is may review it, and only once.
+// Only a customer whose own SERVED/COMPLETED order this is may review it, and only once.
 router.post(
   '/',
   requireCustomerAuth,
@@ -41,17 +41,68 @@ router.post(
   })
 );
 
+// Customers see approved reviews. Managers see reviews from their assigned branch only.
+// Super admins may select a branch with ?branchId=<id>, or see all branches.
 router.get(
   '/',
   optionalAuth,
   asyncHandler(async (req, res) => {
-    const onlyApproved = !req.employee;
+    const employee = req.employee;
+    const requestedBranchId = typeof req.query.branchId === 'string' ? req.query.branchId : undefined;
+
+    if (employee && employee.role !== 'SUPER_ADMIN' && employee.role !== 'MANAGER') {
+      throw new ForbiddenError('You do not have permission to view staff reviews.');
+    }
+
+    let scopedOrderIds: string[] | undefined;
+    if (employee?.role === 'MANAGER') {
+      if (!employee.branchId) throw new ForbiddenError('Your account is not assigned to a branch.');
+      const orders = await prisma.order.findMany({
+        where: { branchId: employee.branchId },
+        select: { id: true },
+      });
+      scopedOrderIds = orders.map((order) => order.id);
+    } else if (employee?.role === 'SUPER_ADMIN' && requestedBranchId) {
+      const orders = await prisma.order.findMany({
+        where: { branchId: requestedBranchId },
+        select: { id: true },
+      });
+      scopedOrderIds = orders.map((order) => order.id);
+    }
+
     const reviews = await prisma.review.findMany({
-      where: onlyApproved ? { approved: true } : {},
+      where: {
+        ...(employee ? {} : { approved: true }),
+        ...(scopedOrderIds ? { orderId: { in: scopedOrderIds } } : {}),
+        ...(employee?.role === 'SUPER_ADMIN' && !requestedBranchId ? {} : {}),
+      },
+      include: {
+        customer: { select: { id: true, fullName: true } },
+      },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: 200,
     });
-    res.json({ reviews });
+
+    const orderIds = [...new Set(reviews.map((review) => review.orderId).filter((id): id is string => !!id))];
+    const orders = orderIds.length
+      ? await prisma.order.findMany({
+          where: { id: { in: orderIds } },
+          select: {
+            id: true,
+            orderNumber: true,
+            branchId: true,
+            branch: { select: { id: true, name: true } },
+          },
+        })
+      : [];
+    const orderById = new Map(orders.map((order) => [order.id, order]));
+
+    res.json({
+      reviews: reviews.map((review) => ({
+        ...review,
+        order: review.orderId ? orderById.get(review.orderId) ?? null : null,
+      })),
+    });
   })
 );
 
@@ -61,6 +112,15 @@ router.patch(
   requireRole('SUPER_ADMIN', 'MANAGER'),
   asyncHandler(async (req, res) => {
     const approved = z.boolean().parse(req.body.approved);
+    const existing = await prisma.review.findUnique({ where: { id: req.params.id }, select: { id: true, orderId: true } });
+    if (!existing) throw new AppError('Review not found.', 404);
+
+    if (req.employee!.role === 'MANAGER') {
+      if (!req.employee!.branchId || !existing.orderId) throw new ForbiddenError('You can only moderate reviews for your own branch.');
+      const order = await prisma.order.findUnique({ where: { id: existing.orderId }, select: { branchId: true } });
+      if (!order || order.branchId !== req.employee!.branchId) throw new ForbiddenError('You can only moderate reviews for your own branch.');
+    }
+
     const review = await prisma.review.update({ where: { id: req.params.id }, data: { approved } });
     res.json({ review });
   })
