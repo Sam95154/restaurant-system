@@ -99,6 +99,12 @@ const navigation: NavItem[] = [
     roles: ['SUPER_ADMIN', 'MANAGER'],
   },
   {
+    label: 'Feedback & Reviews',
+    to: '/staff/reviews',
+    icon: '★',
+    roles: ['SUPER_ADMIN', 'MANAGER'],
+  },
+  {
     label: 'Customers',
     to: '/staff/customers',
     icon: '♙',
