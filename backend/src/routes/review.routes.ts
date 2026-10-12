@@ -5,14 +5,18 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { requireCustomerAuth, requireEmployeeAuth, optionalAuth } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { AppError, ForbiddenError } from '../utils/errors';
+import { verifyToken } from '../utils/jwt';
 
 const router = Router();
 
 const reviewSchema = z.object({
   orderId: z.string().uuid(),
+  qrToken: z.string().optional(),
   itemRating: z.number().int().min(1).max(5).optional(),
   restaurantRating: z.number().int().min(1).max(5).optional(),
-  text: z.string().max(1000).optional(),
+  text: z.string().trim().max(1000).optional(),
+}).refine((data) => data.itemRating !== undefined || data.restaurantRating !== undefined, {
+  message: 'Please provide a star rating.',
 });
 
 // Only a customer whose own SERVED/COMPLETED order this is may review it, and only once.
@@ -21,16 +25,36 @@ router.post(
   requireCustomerAuth,
   asyncHandler(async (req, res) => {
     const data = reviewSchema.parse(req.body);
+    let customerId = req.customer?.customerId;
+
+    // Public QR orders use a signed, order-specific token so customers do not
+    // need to create an account just to leave feedback.
+    if (!customerId && data.qrToken) {
+      try {
+        const token = verifyToken(data.qrToken);
+        if (token.kind !== 'qr_order' || token.orderId !== data.orderId) {
+          throw new Error('Invalid QR order token');
+        }
+      } catch {
+        throw new ForbiddenError('Your order review session has expired. Please ask staff for help.');
+      }
+    } else if (!customerId) {
+      throw new ForbiddenError('A valid order review session is required.');
+    }
+
     const order = await prisma.order.findUnique({ where: { id: data.orderId } });
-    if (!order || order.customerId !== req.customer!.customerId) throw new ForbiddenError('You can only review your own orders.');
+    if (!order || !order.customerId || (customerId && order.customerId !== customerId)) {
+      throw new ForbiddenError('You can only review your own orders.');
+    }
+    customerId = order.customerId;
     if (!['SERVED', 'COMPLETED'].includes(order.status)) throw new AppError('You can review an order once it has been served.', 400);
 
-    const existing = await prisma.review.findFirst({ where: { orderId: data.orderId, customerId: req.customer!.customerId } });
+    const existing = await prisma.review.findFirst({ where: { orderId: data.orderId } });
     if (existing) throw new AppError('You have already reviewed this order.', 400);
 
     const review = await prisma.review.create({
       data: {
-        customerId: req.customer!.customerId,
+        customerId,
         orderId: data.orderId,
         itemRating: data.itemRating,
         restaurantRating: data.restaurantRating,
