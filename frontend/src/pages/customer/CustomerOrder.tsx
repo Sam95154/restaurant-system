@@ -593,6 +593,13 @@ export default function CustomerOrder() {
   const [couponsLoading, setCouponsLoading] = useState(false);
   const [couponsError, setCouponsError] = useState('');
   const [specialInstructions, setSpecialInstructions] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [reviewRating, setReviewRating] = useState(0);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState('');
   const [placing, setPlacing] = useState(false);
   const [orderError, setOrderError] = useState('');
 
@@ -988,12 +995,23 @@ export default function CustomerOrder() {
       setOrderError('Please add at least one item to your order.');
       return;
     }
+    if (customerName.trim().length < 2) {
+      setOrderError('Please enter your name before placing the order.');
+      return;
+    }
+    const normalizedPhone = customerPhone.replace(/[\\s()-]/g, '');
+    if (!/^\\+?[0-9]{7,15}$/.test(normalizedPhone)) {
+      setOrderError('Please enter a valid phone number before placing the order.');
+      return;
+    }
 
     setPlacing(true);
 
     try {
       const payload: Record<string, unknown> = {
         tableId,
+        customerName: customerName.trim(),
+        customerPhone: normalizedPhone,
         items: cartLines.map((line) => ({
           itemId: line.item.id,
           quantity: line.quantity,
@@ -1012,6 +1030,10 @@ export default function CustomerOrder() {
 
       setActiveOrder(order);
       setQrToken(token || '');
+      setReviewRating(0);
+      setReviewComment('');
+      setReviewSubmitted(false);
+      setReviewError('');
       setBill(null);
       setBillError(false);
       setLiveWarning(false);
@@ -1032,6 +1054,29 @@ export default function CustomerOrder() {
       setOrderError(errorMessage(err, 'We could not place your order. Please try again.'));
     } finally {
       setPlacing(false);
+    }
+  }
+
+  async function submitReview() {
+    if (!activeOrder || reviewSubmitting || reviewSubmitted) return;
+    if (reviewRating < 1 || reviewRating > 5) {
+      setReviewError('Please select a star rating from 1 to 5.');
+      return;
+    }
+    setReviewSubmitting(true);
+    setReviewError('');
+    try {
+      await api.post('/reviews', {
+        orderId: activeOrder.id,
+        qrToken,
+        restaurantRating: reviewRating,
+        text: reviewComment.trim(),
+      });
+      setReviewSubmitted(true);
+    } catch (err: unknown) {
+      setReviewError(errorMessage(err, 'We could not submit your feedback. Please try again.'));
+    } finally {
+      setReviewSubmitting(false);
     }
   }
 
@@ -1229,6 +1274,34 @@ export default function CustomerOrder() {
                 />
               ) : (
                 <OrderTracker status={activeOrder.status} />
+              )}
+
+              {['SERVED', 'COMPLETED'].includes(activeOrder.status) && (
+                <section className="qo-panel qo-noprint" aria-label="Feedback and review">
+                  <h3 className="qo-display qo-panel-title">How was your experience?</h3>
+                  {reviewSubmitted ? (
+                    <p className="qo-muted" role="status">Thank you! Your feedback has been submitted.</p>
+                  ) : (
+                    <>
+                      <p className="qo-muted" style={{ marginTop: 0 }}>Rate your experience and tell us what we can improve.</p>
+                      <div style={{ display: 'flex', gap: 8, margin: '12px 0' }} role="group" aria-label="Rate your experience">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button key={star} type="button" onClick={() => setReviewRating(star)} aria-label={`${star} star`} aria-pressed={reviewRating === star} style={{ border: 0, background: 'transparent', color: star <= reviewRating ? '#d49a19' : '#b7b0a7', fontSize: 32, cursor: 'pointer', padding: 0 }}>
+                            ★
+                          </button>
+                        ))}
+                      </div>
+                      <label className="qo-note">
+                        <span className="qo-note-label">Comments (optional)</span>
+                        <textarea className="qo-input" rows={3} maxLength={1000} placeholder="Share your feedback..." value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} />
+                      </label>
+                      {reviewError && <div className="qo-alert" role="alert" style={{ marginTop: 12 }}>{reviewError}</div>}
+                      <button type="button" className="qo-primary" style={{ marginTop: 14 }} onClick={() => void submitReview()} disabled={reviewSubmitting || reviewRating === 0}>
+                        {reviewSubmitting ? 'Submitting feedback…' : 'Submit Feedback'}
+                      </button>
+                    </>
+                  )}
+                </section>
               )}
 
               <section className="qo-panel">
@@ -1829,6 +1902,16 @@ export default function CustomerOrder() {
                   </div>
                 ))}
               </div>
+
+              <label className="qo-note">
+                <span className="qo-note-label">Your name (required)</span>
+                <input className="qo-input" required minLength={2} maxLength={120} autoComplete="name" placeholder="Enter your full name" value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
+              </label>
+
+              <label className="qo-note">
+                <span className="qo-note-label">Phone number (required)</span>
+                <input className="qo-input" required inputMode="tel" autoComplete="tel" maxLength={20} placeholder="Enter your phone number" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
+              </label>
 
               <label className="qo-note">
                 <span className="qo-note-label">Note for the kitchen (optional)</span>
