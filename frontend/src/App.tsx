@@ -30,6 +30,7 @@ import AuditLogs from './pages/staff/AuditLogs';
 import Coupons from './pages/staff/Coupons';
 import CustomerWaitingQueue from './pages/customer/WaitingQueue';
 import StaffWaitingQueue from './pages/staff/WaitingQueue';
+import FeedbackReviews from './pages/staff/FeedbackReviews';
 
 export default function App() {
   return (
@@ -430,6 +431,20 @@ export default function App() {
     </ProtectedRoute>
   }
 />
+      {/* =====================================================
+          FEEDBACK & REVIEWS
+      ===================================================== */}
+      <Route
+        path="/staff/reviews"
+        element={
+          <ProtectedRoute roles={['SUPER_ADMIN', 'MANAGER']}>
+            <StaffLayout>
+              <FeedbackReviews />
+            </StaffLayout>
+          </ProtectedRoute>
+        }
+      />
+
       {/* =====================================================
           404
       ===================================================== */}
