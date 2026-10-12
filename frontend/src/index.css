@@ -2,4 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
-body { @apply bg-cream text-coffee-dark; }
+@layer base {
+  button {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-transparent
+      bg-turmeric px-4 py-2.5 text-sm font-semibold leading-5 text-coffee-dark
+      shadow-sm transition-all duration-200 ease-out
+      hover:bg-turmeric-deep
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-turmeric
+      focus-visible:ring-offset-2
+      disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none;
+  }
+
+  button:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+}
+
+body {
+  @apply bg-cream text-coffee-dark;
+}
